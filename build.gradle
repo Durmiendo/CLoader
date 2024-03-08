@@ -1,0 +1,268 @@
+// configure all projects includes current
+(subprojects + project).each { Project project ->
+    // attach repositories
+    project.repositories {
+        mavenCentral()
+        mavenLocal()
+        maven { url "https://raw.githubusercontent.com/Zelaux/MindustryRepo/master/repository" }
+        maven { url "https://www.jitpack.io" };
+    }
+
+    // apply plugins
+    project.plugins.apply("java")
+    project.plugins.apply("idea")
+    project.plugins.apply("maven-publish")
+}
+
+wrapper { Wrapper wrapper ->
+    wrapper.gradleVersion "8.1.1"
+}
+
+// deletes build dirs in the subprojects
+project.tasks.create("cleanBuilds") { Task task -> // TODO sucks where files locked
+    task.onlyIf { false }
+
+    task.doLast {
+        project.subprojects.each { Project p ->
+            if (p.buildDir.exists()) {
+                p.delete(p.buildDir)
+            }
+        }
+    }
+}
+
+ext {
+    // load settings
+    var localFile = file("settings/local.json")
+    if (localFile.exists())
+        local = new groovy.json.JsonSlurper().parseText(localFile.text)
+    else
+        local = null
+
+    var settingsFile = file("settings/settings.json")
+    if (settingsFile.exists())
+        settings = new groovy.json.JsonSlurper().parseText(settingsFile.text)
+    else
+        settings = null
+
+    // setup group and version
+    project.group = project.ext.settings?.projectSettings?.group ?: "group"
+    project.version = project.ext.settings?.projectSettings?.version ?: "nil"
+
+    // parse dependencies
+    buildScriptExtensions = [:]
+    settings?.extensions?.each { String ext ->
+        project.file("extensions/$ext").listFiles()?.each { File file ->
+            var name = file.name.substring(0, file.name.indexOf('.'))
+
+            if (buildScriptExtensions[name] == null)
+                buildScriptExtensions[name] = []
+
+            buildScriptExtensions[name] += file
+        }
+    }
+
+    // executes command
+    doExec = { String cmd ->
+        cmd.execute(null, rootProject.projectDir).waitForProcessOutput(System.out, System.err)
+    }
+
+    // returns output jar name for specified project
+    getOutputJar = { Project p ->
+        return "${rootProject.name}-${p.name}-${p.version}.jar"
+    }
+
+    // returns child of the file
+    child = { File p, String c ->
+        return new File(p, c)
+    }
+
+}
+
+// builds jar with android and desktop sources
+project.tasks.create("buildRelease", Jar)
+
+// for github actions
+project.tasks.create("workflowBuild") { Task task ->
+    task.dependsOn project.tasks.buildRelease
+}
+
+// apply extensions
+project.ext.buildScriptExtensions.rootProject?.each { File file ->
+    project.apply(from: file)
+}
+
+// configure subprojects
+subprojects.each { Project project ->
+    // setup group and version
+    project.group = project.parent.ext.settings?.projectSettings?.group ?: "group"
+    project.version = project.parent.ext.settings?.projectSettings?.version ?: "nil"
+
+    // setup source sets
+    // src - java sources
+    // gen - generated java sources
+    // res - resources (e.g. assets)
+    project.sourceSets.main.java.srcDirs = [
+            "src", "gen"
+    ]
+    project.sourceSets.main.resources.srcDirs = [
+            "res"
+    ]
+
+    project.ext {
+        // parse annotation processors properties
+        APArgs = []
+        var APArgsConfig = project.parent.ext.settings?.APArgs
+        if (APArgsConfig != null) {
+            var global = APArgsConfig.global
+            var local = APArgsConfig.local
+            var full = (global ?: []) + (local?.get(project.name) ?: [])
+            full.each { String arg ->
+                if (!arg.contains("-A"))
+                    APArgs += "-A" + arg
+            }
+        }
+
+        // parse dependencies
+        deps = [:]
+
+        var depsConf = project.parent.ext.settings?.dependencies
+        var depsList = [:]
+        depsConf?.list?.each { dep ->
+            var k = dep.keySet()[0]
+            var v = dep[k]
+            depsList[k] = v
+        }
+        depsConf?.projects?.get(project.name)?.each { depType ->
+            k = depType.key
+            depType.value.each { String v ->
+                var dep = null
+                if (v.startsWith("project:")) {
+                    dep = project.parent.project(v.substring(8))
+                } else if (v.startsWith("list:")) {
+                    dep = depsList[v.substring(5)]
+                } else if (v.startsWith("direct:")) {
+                    dep = v.substring(7)
+                }
+
+                if (dep == null)
+                    project.logger.log(LogLevel.ERROR, "Uncknown depedency type $v")
+                else
+                    project.ext.deps[k] = dep
+            }
+        }
+    }
+
+    project.tasks.withType(JavaCompile) { JavaCompile task ->
+        task.options.compilerArgs.addAll(project.ext.APArgs)
+
+        // setup compile options
+        task.options.encoding = "UTF-8"
+        task.options.compilerArgs += "-Xlint:none"
+        task.options.generatedSourceOutputDirectory.set(project.file("gen"))
+
+        // if you want to specify jvm path
+        var home = project.parent.local?.jvm?.home
+        if (home != null)
+            options.forkOptions.executable = home
+
+        // project should be complied in 64 bytecode version
+        task.options.compilerArgs += ['--release', '8']
+        task.targetCompatibility = 8
+        task.sourceCompatibility = JavaVersion.VERSION_16
+
+        // specially for jabel
+        task.options.forkOptions.jvmArgs += [
+                "--add-opens=jdk.compiler/com.sun.tools.javac.api=ALL-UNNAMED",
+                "--add-opens=jdk.compiler/com.sun.tools.javac.code=ALL-UNNAMED",
+                "--add-opens=jdk.compiler/com.sun.tools.javac.model=ALL-UNNAMED",
+                "--add-opens=jdk.compiler/com.sun.tools.javac.processing=ALL-UNNAMED",
+                "--add-opens=jdk.compiler/com.sun.tools.javac.parser=ALL-UNNAMED",
+                "--add-opens=jdk.compiler/com.sun.tools.javac.util=ALL-UNNAMED",
+                "--add-opens=jdk.compiler/com.sun.tools.javac.tree=ALL-UNNAMED",
+                "--add-opens=jdk.compiler/com.sun.tools.javac.file=ALL-UNNAMED",
+                "--add-opens=jdk.compiler/com.sun.tools.javac.main=ALL-UNNAMED",
+                "--add-opens=jdk.compiler/com.sun.tools.javac.jvm=ALL-UNNAMED",
+                "--add-opens=jdk.compiler/com.sun.tools.javac.comp=ALL-UNNAMED",
+                "--add-opens=java.base/sun.reflect.annotation=ALL-UNNAMED"
+        ]
+
+        doFirst {
+            // clear previously generated sources
+            delete options.generatedSourceOutputDirectory.get().asFile.listFiles()
+        }
+    }
+
+    project.dependencies {
+        if (project.ext.deps.implementation != null)
+            implementation project.ext.deps.implementation
+
+        if (project.ext.deps.api != null)
+            api project.ext.deps.api
+
+        if (project.ext.deps.compileOnly != null)
+            compileOnly project.ext.deps.compileOnly
+
+        if (project.ext.deps.annotationProcessor != null)
+            annotationProcessor project.ext.deps.annotationProcessor
+
+        // needs for translate mod to 64 bytecode
+        annotationProcessor "com.github.Anuken:jabel:93fde537c7"
+    }
+
+    // copy output jar to specified dirs
+    project.tasks.create("copyJar") { Task task ->
+        project.parent.ext.local?.copy?.get(project.name)?.each { p ->
+            project.copy {
+                from project.tasks.jar
+                into p
+            }
+        }
+    }
+
+    project.tasks.jar { Jar jar ->
+        jar.archiveFileName = project.parent.ext.getOutputJar(project)
+
+        jar.duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+        // collect runtime classpath
+        jar.from {
+            project.configurations.runtimeClasspath.collect { File file ->
+                file.isDirectory() ? file : zipTree(file)
+            }
+        }
+
+        // copy jars
+        jar.finalizedBy project.tasks.copyJar
+    }
+
+    // apply extensions
+    project.parent.ext.buildScriptExtensions.get(project.name)?.each { File file ->
+        project.apply(from: file)
+    }
+}
+
+project.tasks.buildRelease { Jar jar ->
+    jar.dependsOn project.subprojects*.tasks*.jar
+
+    jar.duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+
+    jar.from {
+        [project.zipTree(project("android").tasks.collectJars.archiveFile.get()),
+         project.zipTree(project("desktop").tasks.jar.archiveFile.get())]
+    }
+
+    jar.doLast {
+        project.ext.local?.copy?.release?.each { String path ->
+            project.copy {
+                from { project.tasks.jar.archiveFile.get() }
+                into local.copy.release[0]
+            }
+        }
+        project.copy {
+            from { project.tasks.jar.archiveFile.get() }
+            into project.file("artifacts")
+        }
+    }
+
+    jar.finalizedBy project.tasks.cleanBuilds
+}
