@@ -5,39 +5,11 @@ import arc.util.Log;
 import arc.util.Reflect;
 import mindustry.ctype.Content;
 
-import java.io.File;
-import java.io.IOException;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
-import java.net.URISyntaxException;
+
 public class R {
-
-    public static Seq<Class<?>> getClasses(String packageName, Class<?> filter) throws ClassNotFoundException, IOException, URISyntaxException {
-        Seq<Class<?>> classes = new Seq();
-        String path = packageName.replace('.', '/');
-        File directory = new File(ClassLoader.getSystemClassLoader().getResource(path).getFile());
-        if (directory.exists()) {
-            String[] files = directory.list();
-            for (String file : files) {
-                if (file.endsWith(".class")) {
-                    String className = packageName + '.' + file.substring(0, file.length() - 6);
-                    Class<?> clazz = null;
-                    try {
-                        clazz = Class.forName(className);
-                    } catch (ClassNotFoundException e) {
-                        Log.warn("getClasses error: " + e);
-                    }
-                    if (filter == null || filter.isAssignableFrom(clazz)) {
-                        classes = classes.add(clazz);
-                    }
-                }
-            }
-        }
-        return classes;
-    }
-
-
     public static String getName(Field fi) {
         String r = null;
         try {

@@ -7,6 +7,7 @@ import mindustry.content.Items;
 import mindustry.ctype.Content;
 import mindustry.type.ItemStack;
 import mindustry.world.Block;
+import org.durmiendo.minedit.mods.CMod;
 
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
@@ -18,6 +19,7 @@ import static mindustry.type.ItemStack.with;
 public class ContentController {
     public Field contentMap;
     public Seq<Content>[] newContent;
+    public Seq<CMod> mods;
 
     public void addCont(int ct, Content c) {
         //newContent[ct].add(c);
@@ -42,6 +44,7 @@ public class ContentController {
     }
 
     public ContentController() {
+        mods = new Seq<>();
         try {
             contentMap = Vars.content.getClass().getDeclaredField("contentMap");
         } catch (NoSuchFieldException ex) {

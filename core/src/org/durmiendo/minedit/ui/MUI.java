@@ -1,10 +1,7 @@
 package org.durmiendo.minedit.ui;
 
 import arc.struct.Seq;
-import org.durmiendo.minedit.ui.dialogs.ChoiceDialog;
-import org.durmiendo.minedit.ui.dialogs.ClassGetterDialog;
-import org.durmiendo.minedit.ui.dialogs.ContentEditorDialog;
-import org.durmiendo.minedit.ui.dialogs.SeqEditorDialog;
+import org.durmiendo.minedit.ui.dialogs.*;
 
 import java.awt.*;
 
@@ -14,6 +11,7 @@ public class MUI {
     public SeqEditorDialog seqEditorDialog;
     public ContentEditorDialog contentEditorDialog;
     public ClassGetterDialog classGetterDialog;
+    public ModEditorDialog modEditorDialog;
 
 
     public void build() {
@@ -21,5 +19,6 @@ public class MUI {
         seqEditorDialog = new SeqEditorDialog("Редактор последовательностей");
         contentEditorDialog = new ContentEditorDialog("Редактор контента");
         classGetterDialog = new ClassGetterDialog();
+        modEditorDialog = new ModEditorDialog("Редактор мода");
     }
 }
